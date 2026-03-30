@@ -383,15 +383,20 @@ def main():
     # ══════════════════════════════════════════════════════════════════
     print(f"{datetime.now():%H:%M:%S}  Rendering HTML...")
 
+    all_figs = [fig_heatmap, fig_hourly_line, fig_daily, fig_queue, fig_tz, fig_local_heatmap]
+
+    # First chart bundles full plotly.js inline; rest skip it
+    chart_divs = []
+    for i, fig in enumerate(all_figs):
+        chart_divs.append(pio.to_html(fig, full_html=False, include_plotlyjs=(True if i == 0 else False)))
+
     charts_html = ""
-    for fig in [fig_heatmap, fig_hourly_line, fig_daily, fig_queue]:
-        charts_html += f'<div class="chart-card">{pio.to_html(fig, full_html=False, include_plotlyjs=False)}</div>\n'
+    for div in chart_divs[:4]:
+        charts_html += f'<div class="chart-card">{div}</div>\n'
 
     local_charts_html = ""
-    for fig in [fig_tz, fig_local_heatmap]:
-        local_charts_html += f'<div class="chart-card">{pio.to_html(fig, full_html=False, include_plotlyjs=False)}</div>\n'
-
-    plotly_js = pio.to_html(go.Figure(), full_html=False, include_plotlyjs="cdn").split("</script>")[0] + "</script>"
+    for div in chart_divs[4:]:
+        local_charts_html += f'<div class="chart-card">{div}</div>\n'
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -399,7 +404,6 @@ def main():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Concierge Call Volume Dashboard</title>
-{plotly_js}
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   :root {{
