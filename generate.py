@@ -51,14 +51,16 @@ def main():
     cur = conn.cursor()
 
     # ── 1. Summary stats ────────────────────────────────────────────
+    # NOTE: contact_start_ts is already stored in PT (offset -08:00/-07:00),
+    # so we use HOUR/DATE directly — no from_utc_timestamp conversion needed.
     print(f"{datetime.now():%H:%M:%S}  Querying summary stats...")
     summary = query(cur, """
         SELECT 
-            MIN(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific'))) as min_date,
-            MAX(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific'))) as max_date,
+            MIN(DATE(contact_start_ts)) as min_date,
+            MAX(DATE(contact_start_ts)) as max_date,
             COUNT(DISTINCT cc_id) as total_calls,
-            DATEDIFF(MAX(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific'))),
-                     MIN(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific')))) + 1 as total_days
+            DATEDIFF(MAX(DATE(contact_start_ts)),
+                     MIN(DATE(contact_start_ts))) + 1 as total_days
         FROM cgan_ustax_published.ae_concierge_master_lh
         WHERE contact_start_ts IS NOT NULL AND leg_direction = 'INBOUND'
     """)[0]
@@ -77,14 +79,14 @@ def main():
     print(f"{datetime.now():%H:%M:%S}  Querying hourly heatmap (PT)...")
     heatmap_rows = query(cur, """
         SELECT 
-            CASE DAYOFWEEK(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific')))
+            CASE DAYOFWEEK(DATE(contact_start_ts))
                 WHEN 1 THEN 'Sunday' WHEN 2 THEN 'Monday' WHEN 3 THEN 'Tuesday'
                 WHEN 4 THEN 'Wednesday' WHEN 5 THEN 'Thursday' WHEN 6 THEN 'Friday'
                 WHEN 7 THEN 'Saturday' END as day_of_week,
-            HOUR(from_utc_timestamp(contact_start_ts, 'US/Pacific')) as hour_pt,
+            HOUR(contact_start_ts) as hour_pt,
             COUNT(DISTINCT cc_id) as total_calls,
-            COUNT(DISTINCT DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific'))) as num_days,
-            ROUND(COUNT(DISTINCT cc_id) / COUNT(DISTINCT DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific'))), 1) as avg_calls
+            COUNT(DISTINCT DATE(contact_start_ts)) as num_days,
+            ROUND(COUNT(DISTINCT cc_id) / COUNT(DISTINCT DATE(contact_start_ts)), 1) as avg_calls
         FROM cgan_ustax_published.ae_concierge_master_lh
         WHERE contact_start_ts IS NOT NULL AND leg_direction = 'INBOUND'
         GROUP BY 1, 2
@@ -99,12 +101,12 @@ def main():
     print(f"{datetime.now():%H:%M:%S}  Querying hourly line data (PT)...")
     hourly_line = query(cur, """
         SELECT 
-            CASE DAYOFWEEK(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific')))
+            CASE DAYOFWEEK(DATE(contact_start_ts))
                 WHEN 1 THEN 'Sunday' WHEN 2 THEN 'Monday' WHEN 3 THEN 'Tuesday'
                 WHEN 4 THEN 'Wednesday' WHEN 5 THEN 'Thursday' WHEN 6 THEN 'Friday'
                 WHEN 7 THEN 'Saturday' END as day_of_week,
-            HOUR(from_utc_timestamp(contact_start_ts, 'US/Pacific')) as hour_pt,
-            ROUND(COUNT(DISTINCT cc_id) / COUNT(DISTINCT DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific'))), 0) as avg_calls
+            HOUR(contact_start_ts) as hour_pt,
+            ROUND(COUNT(DISTINCT cc_id) / COUNT(DISTINCT DATE(contact_start_ts)), 0) as avg_calls
         FROM cgan_ustax_published.ae_concierge_master_lh
         WHERE contact_start_ts IS NOT NULL AND leg_direction = 'INBOUND'
         GROUP BY 1, 2
@@ -116,8 +118,8 @@ def main():
     print(f"{datetime.now():%H:%M:%S}  Querying daily volume...")
     daily_rows = query(cur, """
         SELECT 
-            DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific')) as call_date,
-            DAYOFWEEK(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific'))) as dow,
+            DATE(contact_start_ts) as call_date,
+            DAYOFWEEK(DATE(contact_start_ts)) as dow,
             COUNT(DISTINCT cc_id) as calls
         FROM cgan_ustax_published.ae_concierge_master_lh
         WHERE contact_start_ts IS NOT NULL AND leg_direction = 'INBOUND'
@@ -130,7 +132,7 @@ def main():
     queue_rows = query(cur, """
         SELECT 
             COALESCE(concierge_type, 'Unknown') as queue_type,
-            HOUR(from_utc_timestamp(contact_start_ts, 'US/Pacific')) as hour_pt,
+            HOUR(contact_start_ts) as hour_pt,
             COUNT(DISTINCT cc_id) as total_calls
         FROM cgan_ustax_published.ae_concierge_master_lh
         WHERE contact_start_ts IS NOT NULL AND leg_direction = 'INBOUND'
@@ -171,7 +173,7 @@ def main():
     print(f"{datetime.now():%H:%M:%S}  Computing peak hour...")
     peak_hour_rows = query(cur, """
         SELECT 
-            HOUR(from_utc_timestamp(contact_start_ts, 'US/Pacific')) as hour_pt,
+            HOUR(contact_start_ts) as hour_pt,
             COUNT(DISTINCT cc_id) as total_calls
         FROM cgan_ustax_published.ae_concierge_master_lh
         WHERE contact_start_ts IS NOT NULL AND leg_direction = 'INBOUND'
@@ -183,7 +185,7 @@ def main():
 
     peak_dow_rows = query(cur, """
         SELECT 
-            CASE DAYOFWEEK(DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific')))
+            CASE DAYOFWEEK(DATE(contact_start_ts))
                 WHEN 1 THEN 'Sunday' WHEN 2 THEN 'Monday' WHEN 3 THEN 'Tuesday'
                 WHEN 4 THEN 'Wednesday' WHEN 5 THEN 'Thursday' WHEN 6 THEN 'Friday'
                 WHEN 7 THEN 'Saturday' END as day_of_week,
@@ -201,7 +203,7 @@ def main():
     local_heatmap = query(cur, """
         WITH calls_local AS (
             SELECT cc_id, contact_start_ts,
-                DATE(from_utc_timestamp(contact_start_ts, 'US/Pacific')) as call_date_pt,
+                DATE(contact_start_ts) as call_date_pt,
                 CASE 
                     WHEN SUBSTR(customer_phone, 3, 3) IN ('907') THEN -9
                     WHEN SUBSTR(customer_phone, 3, 3) IN ('808') THEN -10
@@ -210,7 +212,7 @@ def main():
                     WHEN SUBSTR(customer_phone, 3, 3) IN ('205','251','256','334','479','501','601','662','769','870','318','337','504','225','985','214','254','281','325','346','361','409','430','432','469','512','682','713','737','806','817','830','832','903','915','918','936','940','956','972','979','316','620','785','913','402','531','308','405','580','918','605','701','712','515','563','319','641','612','651','763','952','320','507','218','314','417','573','636','660','816') THEN -6
                     ELSE -5
                 END as utc_offset,
-                HOUR(from_utc_timestamp(contact_start_ts, 'US/Pacific')) as hour_pt
+                HOUR(contact_start_ts) as hour_pt
             FROM cgan_ustax_published.ae_concierge_master_lh
             WHERE contact_start_ts IS NOT NULL AND leg_direction = 'INBOUND'
               AND customer_phone IS NOT NULL
